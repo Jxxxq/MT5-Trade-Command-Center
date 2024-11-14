@@ -35,6 +35,7 @@
 #include <Controls\Label.mqh>
 #include <Controls\Button.mqh>
 #include <Trade\Trade.mqh>
+#include "TradeSelector.mqh" // Include the ListSelector class
 
 //+------------------------------------------------------------------+
 //| MainPanel Class Definition                                       |
@@ -63,6 +64,7 @@ private:
     int              m_dialog_x;
     int              m_dialog_y;
     
+    bool             tradeSelectorWindowOpen;
     // App dialog
     CAppDialog       m_app_dialog;
     
@@ -81,6 +83,12 @@ private:
     
     CButton         *m_buy_button;
     CButton         *m_sell_button;
+
+    // *** New Control: Show Trades Button ***
+    CButton         *m_show_trades_button;
+    
+    // *** New Member: Trade List Selector ***
+    CTradeSelector   *m_trade_list_selector;
     
     // Scaling factor for font sizes
     double           m_scale_factor;
@@ -99,6 +107,15 @@ private:
     
     // Initialize Components
     bool             InitializeComponents();
+    
+    // *** New Method: Initialize Trade List Selector ***
+    bool             OnTradeMenuClick();
+    
+    // *** New Method: Populate Trade List ***
+    void             PopulateTradeList();
+    
+    // Callback for Trade Selection
+    static void      OnTradeSelected(int index, const string &columns[]);
     
 public:
                     MainPanel();
@@ -131,6 +148,7 @@ MainPanel::MainPanel()
     // Font
     m_text_font            = TEXT_FONT;
     
+    tradeSelectorWindowOpen = false;
     // Dimensions
     m_dialog_width         = 360;
     m_dialog_height        = 500;
@@ -149,6 +167,8 @@ MainPanel::MainPanel()
     m_stop_sell_button     = NULL;
     m_buy_button           = NULL;
     m_sell_button          = NULL;
+    m_show_trades_button   = NULL;
+    m_trade_list_selector  = NULL;
     
     InitializeScaling();
 }
@@ -327,7 +347,124 @@ bool MainPanel::InitializeComponents()
     m_stop_sell_button.Color(TEXT_COLOR);
     m_stop_sell_button.FontSize(ScaledFontSize(10));
 
+    // *** Create "Show Trades" Button ***
+    if (!CreateButton(m_show_trades_button, "ShowTradesButton", 20, 300, 315, 330, "Show Trades"))
+        return false;
+    
+    // Customize Show Trades Button
+    m_show_trades_button.ColorBackground(m_accent_color);
+    m_show_trades_button.ColorBorder(m_secondary_color);
+    m_show_trades_button.Color(TEXT_COLOR);
+    m_show_trades_button.FontSize(ScaledFontSize(10));
+
+    // *** Initialize Trade List Selector (but don't create it yet) ***
+    m_trade_list_selector = NULL;
+
     return true;
+}
+
+// Initialize Trade List Selector
+bool MainPanel::OnTradeMenuClick()
+{
+    if(tradeSelectorWindowOpen){
+        m_trade_list_selector.Destroy();
+        m_show_trades_button.Text("Show Trades");
+        tradeSelectorWindowOpen = false;
+        return true; // Already initialized
+    }    
+
+    // Define headers and column widths for trades
+    string headers[] = {"Ticket", "Symbol", "Type", "Volume", "Price", "Profit"};
+    int column_widths[] = {100, 100, 80, 80, 100, 80};
+    int num_columns = ArraySize(headers);
+    int rectWidth = column_widths[0]+column_widths[1]+column_widths[2]+column_widths[3]+column_widths[4]+column_widths[5];
+    
+    // Create a ListSelector instance
+    m_trade_list_selector = new CTradeSelector();
+    
+    // Define the dimensions for the list selector (adjust as needed)
+    int list_x1 = m_app_dialog.Right();
+    int list_y1 = 350;
+    int list_x2 = m_app_dialog.Right()+rectWidth;
+    int list_y2 = 600;
+    
+    bool created = m_trade_list_selector.Create(
+        0,
+        "TradeList",
+        0, // Subwindow
+        list_x1,
+        list_y1,
+        list_x2,
+        list_y2,
+        headers,
+        column_widths,
+        num_columns
+    );
+    
+    if(!created)
+    {
+        Print("Failed to create TradeList.");
+        return false;
+    }
+    
+    // Define callback for item selection
+    m_trade_list_selector.SetCallback(OnTradeSelected);
+    tradeSelectorWindowOpen = true;
+    m_show_trades_button.Text("Close Trade Menu");
+    return true;
+}
+
+// Populate Trade List
+void MainPanel::PopulateTradeList()
+{
+    if(m_trade_list_selector == NULL)
+        return;
+
+    // Clear existing items
+    m_trade_list_selector.ClearItems();
+
+    // Iterate through all open positions
+    for(int i = 0; i < PositionsTotal(); i++)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(!PositionSelectByTicket(ticket))
+            continue;
+        
+        string symbol = PositionGetString(POSITION_SYMBOL);
+        int type_int = PositionGetInteger(POSITION_TYPE);
+        string type = "";
+        if(type_int == POSITION_TYPE_BUY)
+            type = "BUY";
+        else if(type_int == POSITION_TYPE_SELL)
+            type = "SELL";
+        else
+            type = "UNKNOWN";
+
+        double volume = PositionGetDouble(POSITION_VOLUME);
+        double price = PositionGetDouble(POSITION_PRICE_OPEN);
+        double profit = PositionGetDouble(POSITION_PROFIT);
+        
+        string item_columns[];
+        ArrayResize(item_columns, 6);
+        item_columns[0] = IntegerToString(ticket);
+        item_columns[1] = symbol;
+        item_columns[2] = type;
+        item_columns[3] = DoubleToString(volume, 2);
+        item_columns[4] = DoubleToString(price, _Digits);
+        item_columns[5] = DoubleToString(profit, 2);
+        
+        m_trade_list_selector.AddItem(item_columns);
+    }
+}
+
+// Callback function when a trade is selected
+void MainPanel::OnTradeSelected(int index, const string &columns[])
+{
+    // Example: Print selected trade details
+    string message = "Trade Selected - Ticket: " + columns[0] + ", Symbol: " + columns[1];
+    Print(message);
+    
+    // Additional actions can be implemented here
 }
 
 // Handle Chart Event
@@ -335,6 +472,8 @@ void MainPanel::HandleChartEvent(const int id, const long &lparam, const double 
 {
     m_app_dialog.ChartEvent(id, lparam, dparam, sparam);
 
+    if(tradeSelectorWindowOpen)
+      m_trade_list_selector.HandleEvent(id,lparam,dparam,sparam);
     if(id == CHARTEVENT_OBJECT_CLICK)
     {
         string name = sparam;
@@ -481,12 +620,31 @@ void MainPanel::HandleChartEvent(const int id, const long &lparam, const double 
                 Alert("Failed to place Stop Sell order: " + errorDescription);
             }
         }
+        // *** Handling "Show Trades" Button ***
+        else if(name == "ShowTradesButton")
+        {
+            // Initialize the Trade List Selector if not already done
+            if(!OnTradeMenuClick())
+            {
+                Alert("Failed to initialize Trade List.");
+                return;
+            }
+
+            // Populate the Trade List
+            PopulateTradeList();
+        }
     }
 }
 
 // Deinitialize
 void MainPanel::Deinitialize(const int reason)
 {
+    if(m_trade_list_selector != NULL)
+    {
+        m_trade_list_selector.Destroy();
+        delete m_trade_list_selector;
+        m_trade_list_selector = NULL;
+    }
     m_app_dialog.Destroy(reason);
 }
 
@@ -496,3 +654,5 @@ void MainPanel::Close()
    Print("Closing panel: ", m_app_dialog.Name());
    Deinitialize(REASON_REMOVE);
 }
+
+//+------------------------------------------------------------------+
