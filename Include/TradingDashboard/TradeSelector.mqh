@@ -189,6 +189,7 @@ void CTradeSelector::CreateSectionHeaders()
       ObjectSetInteger(m_chart_id, header_name, OBJPROP_FONTSIZE, m_font_size + 2);
       ObjectSetString(m_chart_id, header_name, OBJPROP_FONT, m_font_name);
       ObjectSetString(m_chart_id, header_name, OBJPROP_TEXT, m_headers[i]);
+      ObjectSetInteger(m_chart_id, header_name, OBJPROP_WIDTH, m_column_widths[i]);
       
       current_x += m_column_widths[i];
    }
@@ -365,13 +366,75 @@ void CTradeSelector::MoveSelection(int delta)
 //+------------------------------------------------------------------+
 //| Update the display of list items                                |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Update the display of list items                                |
+//+------------------------------------------------------------------+
 void CTradeSelector::UpdateListDisplay()
 {
+   int total_items = ArraySize(m_items);
+   
+   // Handle empty state
+   if(total_items == 0)
+   {
+      // Calculate center position for message
+      int total_width = 0;
+      for(int k = 0; k < m_num_columns; k++)
+         total_width += m_column_widths[k];
+      
+      string empty_message = "No trades are currently open";
+      
+      // Clear all existing labels and only show message in first column of first row
+      for(int i = 0; i < m_visible_items; i++)
+      {
+         for(int j = 0; j < m_num_columns; j++)
+         {
+            string item_name = m_name + "Item" + IntegerToString(i) + "_" + IntegerToString(j);
+            
+            // Set empty string for all labels except the message in first position
+            if(i == 0 && j == 0)
+            {
+               ObjectSetString(m_chart_id, item_name, OBJPROP_TEXT, empty_message);
+               ObjectSetInteger(m_chart_id, item_name, OBJPROP_COLOR, m_text_color);
+               ObjectSetInteger(m_chart_id, item_name, OBJPROP_XDISTANCE, m_x1 + (total_width - m_font_size * StringLen(empty_message)/2)/2);
+            }
+            else
+            {
+               // Explicitly set empty text for all other labels
+               ObjectSetString(m_chart_id, item_name, OBJPROP_TEXT, " ");  // Use space instead of empty string
+               // Move labels off-screen or set minimum width to 0 to hide them
+               ObjectSetInteger(m_chart_id, item_name, OBJPROP_XDISTANCE, m_x1);
+               ObjectSetInteger(m_chart_id, item_name, OBJPROP_WIDTH, 0);
+            }
+            
+            // Hide the header labels when empty
+            string header_name = m_name + "Header" + IntegerToString(j);
+            if(j > 0)  // Keep only the first header visible for the message
+            {
+               ObjectSetString(m_chart_id, header_name, OBJPROP_TEXT, " ");
+               ObjectSetInteger(m_chart_id, header_name, OBJPROP_WIDTH, 0);
+            }
+         }
+      }
+      
+      ChartRedraw(m_chart_id);
+      return;
+   }
+
+   // Show headers when items exist
+   for(int j = 0; j < m_num_columns; j++)
+   {
+      string header_name = m_name + "Header" + IntegerToString(j);
+      ObjectSetString(m_chart_id, header_name, OBJPROP_TEXT, m_headers[j]);
+      ObjectSetInteger(m_chart_id, header_name, OBJPROP_WIDTH, m_column_widths[j]);
+   }
+
+   // Regular display logic for when items exist
    for(int i = 0; i < m_visible_items; i++)
    {
       int item_index = i + m_scroll_position;
+      int current_x = m_x1 + 5;
 
-      if(item_index < ArraySize(m_items))
+      if(item_index < total_items)
       {
          color item_color = m_text_color;
          if(i == m_hovered_index)
@@ -384,14 +447,19 @@ void CTradeSelector::UpdateListDisplay()
             string item_name = m_name + "Item" + IntegerToString(i) + "_" + IntegerToString(j);
             ObjectSetString(m_chart_id, item_name, OBJPROP_TEXT, m_items[item_index].columns[j]);
             ObjectSetInteger(m_chart_id, item_name, OBJPROP_COLOR, item_color);
+            ObjectSetInteger(m_chart_id, item_name, OBJPROP_XDISTANCE, current_x);
+            ObjectSetInteger(m_chart_id, item_name, OBJPROP_WIDTH, m_column_widths[j]);
+            current_x += m_column_widths[j];
          }
       }
       else
       {
+         // Clear excess rows
          for(int j = 0; j < m_num_columns; j++)
          {
             string item_name = m_name + "Item" + IntegerToString(i) + "_" + IntegerToString(j);
-            ObjectSetString(m_chart_id, item_name, OBJPROP_TEXT, "");
+            ObjectSetString(m_chart_id, item_name, OBJPROP_TEXT, " ");
+            ObjectSetInteger(m_chart_id, item_name, OBJPROP_WIDTH, 0);
          }
       }
    }
